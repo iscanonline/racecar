@@ -1,5 +1,5 @@
-class <%= class_name %>Consumer < Racecar::Consumer
-  subscribes_to "some-topic"
+class <%= class_name %>Consumer < Racecar::EventBusConsumer
+  subscribes_to_stream "some-topic"
 
   def process(message)
     puts "Received message: #{message.value}"

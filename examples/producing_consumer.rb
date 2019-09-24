@@ -1,5 +1,5 @@
-class ProducingConsumer < Racecar::Consumer
-  subscribes_to "messages", start_from_beginning: false
+class ProducingConsumer < Racecar::EventBusConsumer
+  subscribes_to_stream "messages", start_from_beginning: false
 
   def process(message)
     value = message.value.reverse

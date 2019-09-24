@@ -1,8 +1,12 @@
 require "king_konf"
+require "racecar/event_bus_config"
 
 module Racecar
   class Config < KingKonf::Config
     env_prefix :racecar
+
+    desc "MSP Event Bus: the base URL to download routes"
+    string :routes, default: ""
 
     desc "A list of Kafka brokers in the cluster that you're consuming from"
     list :brokers, default: ["localhost:9092"]
@@ -131,15 +135,22 @@ module Racecar
     boolean :ssl_verify_hostname, default: true
 
     # The error handler must be set directly on the object.
-    attr_reader :error_handler
+    attr_reader :error_handler, :reload_handler, :event_bus_config
 
-    attr_accessor :subscriptions, :logger
+    attr_accessor :subscriptions, :stream_subscription, :logger
 
     def initialize(env: ENV)
       super(env: env)
       @error_handler = proc {}
       @subscriptions = []
       @logger = Logger.new(STDOUT)
+      @reload_handler = proc {}
+      @event_bus_config = EventBusConfig.new(15*60)
+      @event_bus_config.on_reload do |config|
+        self.brokers = config.brokers
+        self.stream_subscription.topic = config.topic
+        self.reload_handler.call(self)
+      end
     end
 
     def inspect
@@ -150,8 +161,8 @@ module Racecar
     end
 
     def validate!
-      if brokers.empty?
-        raise ConfigError, "`brokers` must not be empty"
+      if brokers.empty? or routes.empty?
+        raise ConfigError, "`brokers` or `routes` must not be empty"
       end
 
       if socket_timeout <= max_wait_time
@@ -178,14 +189,29 @@ module Racecar
         consumer_class.name.gsub(/[a-z][A-Z]/) {|str| str[0] << "-" << str[1] }.downcase,
       ].compact.join("")
 
-      self.subscriptions = consumer_class.subscriptions
+      self.stream_subscription = consumer_class.subscription
+      if self.stream_subscription and !self.routes.empty?
+        @event_bus_config.routes = self.routes
+        @event_bus_config.stream = self.stream_subscription.stream
+        reload!
+        self.subscriptions = [self.stream_subscription]
+      end
+
       self.max_wait_time = consumer_class.max_wait_time || self.max_wait_time
       self.offset_retention_time = consumer_class.offset_retention_time || self.offset_retention_time
       self.pidfile ||= "#{group_id}.pid"
     end
 
+    def on_reload(&handler)
+      @reload_handler = handler
+    end
+
     def on_error(&handler)
       @error_handler = handler
+    end
+
+    def reload!
+      @event_bus_config.reload!
     end
   end
 end

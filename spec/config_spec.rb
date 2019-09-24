@@ -2,7 +2,12 @@ require "ostruct"
 require "racecar/config"
 
 RSpec.describe Racecar::Config do
-  let(:config) { Racecar::Config.new }
+  let(:config) do
+    conf = Racecar::Config.new
+    conf.routes = "x"
+    allow(conf.event_bus_config).to(receive(:load)) { |stream| fake_config_response(stream) }
+    conf
+  end
 
   it "uses the default config if no explicit value has been set" do
     expect(config.offset_commit_interval).to eq 10
@@ -53,7 +58,7 @@ RSpec.describe Racecar::Config do
 
   describe "#load_consumer_class" do
     let(:consumer_class) {
-      OpenStruct.new(group_id: nil, name: "DoStuffConsumer", subscriptions: [])
+      OpenStruct.new(group_id: nil, name: "DoStuffConsumer", subscription: nil)
     }
 
     it "sets the group id if one has been explicitly defined" do
@@ -81,11 +86,19 @@ RSpec.describe Racecar::Config do
     end
 
     it "sets the subscriptions to the ones defined on the consumer class" do
-      consumer_class.subscriptions = ["one", "two"]
+      consumer_class.subscription = OpenStruct.new(stream: "mystream")
 
       config.load_consumer_class(consumer_class)
 
-      expect(config.subscriptions).to eq ["one", "two"]
+      expect(config.subscriptions).to eq [OpenStruct.new(stream: "mystream", topic: "msp.mystream")]
+    end
+
+    it "sets the brokers from teh stream defined on the consumer class" do
+      consumer_class.subscription = OpenStruct.new(stream: "mystream")
+
+      config.load_consumer_class(consumer_class)
+
+      expect(config.brokers).to eq ["cluster.url.mystream-0", "cluster.url.mystream-1", "cluster.url.mystream-2"]
     end
 
     it "doesn't override existing values if the consumer hasn't specified anything" do
@@ -106,18 +119,24 @@ RSpec.describe Racecar::Config do
 
   describe "#validate!" do
     before do
-      config.brokers = ["a"]
+      config.routes = "a"
       config.client_id = "x"
     end
 
-    it "raises an exception if no brokers have been configured" do
+    it "raises an exception if no routes and no brokers have been configured" do
       expect { config.validate! }.not_to raise_exception
 
-      config.brokers = []
+      config.routes = ""
 
       expect {
         config.validate!
-      }.to raise_exception(Racecar::ConfigError, "`brokers` must not be empty")
+      }.to raise_exception(Racecar::ConfigError, "`brokers` or `routes` must not be empty")
+
+      config.brokers = ["a"]
+
+      expect {
+        config.validate!
+      }.to raise_exception(Racecar::ConfigError, "`brokers` or `routes` must not be empty")
     end
 
     it "raises an exception if max_wait_time is greater than socket_timeout" do
