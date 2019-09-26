@@ -3,7 +3,7 @@ require "open-uri"
 
 module Racecar
   class EventBusConfig
-    attr_accessor :routes, :brokers, :stream, :topic
+    attr_accessor :routes, :brokers, :stream, :topic, :cluster_uid
 
     def initialize(cache_timeout)
       @reload_handler = proc {}
@@ -20,8 +20,8 @@ module Racecar
 
     def reset!
       @last_reload = Time.at(0)
-      brokers = []
-      topic = nil
+      self.brokers = []
+      self.topic = nil
     end
 
     def on_reload(&handler)
@@ -29,10 +29,13 @@ module Racecar
     end
 
     def load(stream)
-      open("#{routes}/status/stream_route_#{stream}.json") do |f|
+      url = "#{routes}/status/stream_route_#{stream}.json"
+      open(url) do |f|
         body = f.read
         JSON.parse(body, symbolize_names: true)
       end
+    rescue => e
+      raise "Unable to load configuration for stream #{stream} from #{url}: ", e
     end
 
     def reload!(force_download=false)
@@ -45,7 +48,11 @@ module Racecar
       cluster = get_cluster(config, consumer[:cluster_uid])
       raise "Invalid cluster uid for #{consumer}" unless cluster
 
-      return false if self.brokers == cluster[:conExternal] and self.topic == consumer[:topic]
+      return false if self.brokers == cluster[:conExternal] \
+          and self.topic == consumer[:topic] \
+          and self.cluster_uid == consumer[:cluster_uid]
+
+      self.cluster_uid = consumer[:cluster_uid]
       self.brokers = cluster[:conExternal]
       self.topic = consumer[:topic]
 
