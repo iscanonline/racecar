@@ -30,12 +30,14 @@ module Racecar
 
     def load(stream)
       url = "#{routes}/status/stream_route_#{stream}.json"
-      open(url) do |f|
-        body = f.read
-        JSON.parse(body, symbolize_names: true)
+      begin
+        open(url) do |f|
+          body = f.read
+          JSON.parse(body, symbolize_names: true)
+        end
+      rescue => e
+        raise "Unable to load configuration for stream #{stream} from #{url}: #{e.message}"
       end
-    rescue => e
-      raise "Unable to load configuration for stream #{stream} from #{url}: ", e
     end
 
     def reload!(force_download=false)
